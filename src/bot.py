@@ -137,9 +137,9 @@ class DotaBot(commands.Bot):
         self.register_prefix_commands()
         try:
             synced = await self.tree.sync()
-            logger.info(f"Comandos Slash globales registrados: {len(synced)} comandos.")
+            logger.info(f"Comandos Slash registrados: {len(synced)} comandos.")
         except Exception as e:
-            logger.warning(f"No se pudieron sincronizar comandos slash globales: {e}")
+            logger.warning(f"No se pudieron sincronizar comandos slash: {e}")
 
     async def on_ready(self):
         logger.info(f"Bot conectado como {self.user} (ID: {self.user.id})")
@@ -148,16 +148,13 @@ class DotaBot(commands.Bot):
         else:
             logger.info("Whitelist vacía: cualquier usuario en el canal podrá interactuar.")
 
-        # Sync immediately to each connected server for INSTANT slash command display
+        # Clean up any leftover duplicate guild-specific commands so only single global commands appear
         for guild in self.guilds:
             try:
-                self.tree.copy_global_to(guild=guild)
-                synced_guild = await self.tree.sync(guild=guild)
-                logger.info(
-                    f"Comandos Slash sincronizados instantáneamente con '{guild.name}' ({len(synced_guild)} comandos)."
-                )
+                self.tree.clear_commands(guild=guild)
+                await self.tree.sync(guild=guild)
             except Exception as e:
-                logger.warning(f"No se pudieron sincronizar comandos instantáneos en '{guild.name}': {e}")
+                logger.debug(f"Limpieza de comandos en servidor '{guild.name}': {e}")
 
         activity = discord.Activity(type=discord.ActivityType.watching, name="dotaaaaaaaaaaaaa")
         await self.change_presence(status=discord.Status.online, activity=activity)
