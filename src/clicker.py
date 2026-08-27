@@ -47,7 +47,10 @@ def restore_screen_sleep():
 
 
 def find_dota_window(title_keyword: str = "Dota 2") -> Optional[int]:
-    """Finds the window handle (HWND) of the Dota 2 application."""
+    """
+    Finds the window handle (HWND) of the real Dota 2 application.
+    Filters out web browsers or other applications that might contain 'Dota 2' in their title.
+    """
     if not win32gui:
         return None
 
@@ -57,8 +60,27 @@ def find_dota_window(title_keyword: str = "Dota 2") -> Optional[int]:
         if win32gui.IsWindowVisible(hwnd):
             window_text = win32gui.GetWindowText(hwnd)
             class_name = win32gui.GetClassName(hwnd)
-            if title_keyword.lower() in window_text.lower() or class_name == "SDL_app":
-                found_hwnd.append(hwnd)
+
+            # Ignore common browser and editor window classes
+            ignored_classes = (
+                "chrome_widgetwin",
+                "mozilla",
+                "applicationframewindow",
+                "cabinetwclass",
+            )
+            if any(ic in class_name.lower() for ic in ignored_classes):
+                return True
+
+            # Source 2 Dota 2 engine specifically uses "SDL_app" class
+            is_dota_class = class_name == "SDL_app"
+            is_dota_title = title_keyword.lower() in window_text.lower()
+
+            if is_dota_class or is_dota_title:
+                rect = win32gui.GetWindowRect(hwnd)
+                w = rect[2] - rect[0]
+                h = rect[3] - rect[1]
+                if w >= 640 and h >= 480:
+                    found_hwnd.append(hwnd)
         return True
 
     win32gui.EnumWindows(enum_windows_callback, None)
