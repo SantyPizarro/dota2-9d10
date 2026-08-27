@@ -7,7 +7,6 @@ from typing import Optional, Tuple, Dict, Any
 import mss
 import cv2
 import numpy as np
-from PIL import Image
 
 from config import ASSETS_DIR, TEMP_DIR
 
@@ -16,9 +15,9 @@ logger = logging.getLogger("dota2-9d10.detector")
 
 class MatchDetector:
     """
-    Ultra-lightweight Dota 2 Match Ready Screen Detector.
+    Ultra-lightweight Dota 2 Game State and Match Ready Screen Detector.
     Uses region-of-interest (ROI) screen capture and color/shape analysis
-    to detect the 'Accept' button with minimal CPU overhead.
+    to detect matchmaking states with minimal CPU overhead.
     """
 
     def __init__(self, assets_dir: Path = ASSETS_DIR):
@@ -46,61 +45,76 @@ class MatchDetector:
             logger.debug(f"Error inicializando MSS: {e}")
             self.sct = None
 
-    def get_screen_roi_bounds(self) -> Optional[Dict[str, int]]:
+    def get_screen_dimensions(self) -> Optional[Tuple[int, int, int, int]]:
+        """Returns (left, top, width, height) of the primary monitor."""
+        if not self.sct:
+            self._init_mss()
+            if not self.sct:
+                return None
+        try:
+            mon = self.sct.monitors[1]
+            return mon["left"], mon["top"], mon["width"], mon["height"]
+        except Exception as e:
+            logger.debug(f"No se pudieron obtener métricas del monitor: {e}")
+            return None
+
+    def get_center_roi_bounds(self) -> Optional[Dict[str, int]]:
         """
         Calculates the central region of interest (ROI) of the primary monitor.
         Focuses on the middle 40% x 40% where the Dota 2 Accept dialog appears.
         """
+        dims = self.get_screen_dimensions()
+        if not dims:
+            return None
+        left, top, w, h = dims
+        return {
+            "left": left + int(w * 0.30),
+            "top": top + int(h * 0.30),
+            "width": int(w * 0.40),
+            "height": int(h * 0.40),
+            "screen_width": w,
+            "screen_height": h,
+        }
+
+    def get_bottom_right_roi_bounds(self) -> Optional[Dict[str, int]]:
+        """
+        Calculates the bottom-right region of interest (ROI) of the primary monitor.
+        Focuses on the area where the 'PLAY DOTA' / 'FINDING MATCH' button and timer reside.
+        """
+        dims = self.get_screen_dimensions()
+        if not dims:
+            return None
+        left, top, w, h = dims
+        return {
+            "left": left + int(w * 0.74),
+            "top": top + int(h * 0.87),
+            "width": int(w * 0.25),
+            "height": int(h * 0.12),
+            "screen_width": w,
+            "screen_height": h,
+        }
+
+    def capture_roi(self, bounds: Dict[str, int]) -> Optional[np.ndarray]:
+        """Captures a specific region of the screen."""
         if not self.sct:
             self._init_mss()
             if not self.sct:
                 return None
 
         try:
-            mon = self.sct.monitors[1]
-            w = mon["width"]
-            h = mon["height"]
-
-            roi_w = int(w * 0.40)
-            roi_h = int(h * 0.40)
-            roi_left = mon["left"] + int(w * 0.30)
-            roi_top = mon["top"] + int(h * 0.30)
-
-            return {
-                "left": roi_left,
-                "top": roi_top,
-                "width": roi_w,
-                "height": roi_h,
-                "screen_width": w,
-                "screen_height": h,
-            }
-        except Exception as e:
-            logger.debug(f"No se pudieron obtener métricas del monitor: {e}")
-            return None
-
-    def capture_roi(self) -> Tuple[Optional[np.ndarray], Optional[Dict[str, int]]]:
-        """Captures only the central ROI of the screen using mss."""
-        roi_bounds = self.get_screen_roi_bounds()
-        if not roi_bounds:
-            return None, None
-
-        try:
             sct_img = self.sct.grab(
                 {
-                    "left": roi_bounds["left"],
-                    "top": roi_bounds["top"],
-                    "width": roi_bounds["width"],
-                    "height": roi_bounds["height"],
+                    "left": bounds["left"],
+                    "top": bounds["top"],
+                    "width": bounds["width"],
+                    "height": bounds["height"],
                 }
             )
-            # Convert BGRA to BGR numpy array
-            img_np = np.array(sct_img)[:, :, :3]
-            return img_np, roi_bounds
+            return np.array(sct_img)[:, :, :3]
         except Exception as e:
-            logger.debug(f"Error en captura GDI/MSS (pantalla apagada o bloqueada): {e}")
-            # Recreate mss instance for next attempt
+            logger.debug(f"Error en captura ROI GDI/MSS: {e}")
             self._init_mss()
-            return None, None
+            return None
 
     def check_match_ready(self, debug_save: bool = False) -> Tuple[bool, Optional[Tuple[int, int]], Optional[bytes]]:
         """
@@ -111,8 +125,12 @@ class MatchDetector:
             - preview_image_bytes (bytes): JPEG image of the detected dialog for Discord preview.
         """
         try:
-            img_bgr, roi = self.capture_roi()
-            if img_bgr is None or roi is None:
+            roi_bounds = self.get_center_roi_bounds()
+            if not roi_bounds:
+                return False, None, None
+
+            img_bgr = self.capture_roi(roi_bounds)
+            if img_bgr is None:
                 return False, None, None
 
             roi_h, roi_w = img_bgr.shape[:2]
@@ -145,7 +163,7 @@ class MatchDetector:
 
                     # The Accept button is a wide rectangle (aspect ratio between 2.0 and 6.5)
                     if 2.0 <= aspect_ratio <= 6.5:
-                        # Check solid fill density (ensure the button is solidly filled with green)
+                        # Check solid fill density
                         box_mask = mask[y : y + h, x : x + w]
                         green_count = cv2.countNonZero(box_mask)
                         fill_density = green_count / float(w * h)
@@ -155,15 +173,15 @@ class MatchDetector:
                         solidity = float(area) / max(rect_area, 1)
 
                         if solidity >= 0.65 and fill_density >= 0.50:
-                            # Button found! Calculate global screen coordinates
+                            # Button found! Calculate exact global screen coordinates
                             center_roi_x = x + w // 2
                             center_roi_y = y + h // 2
-                            global_x = roi["left"] + center_roi_x
-                            global_y = roi["top"] + center_roi_y
+                            global_x = roi_bounds["left"] + center_roi_x
+                            global_y = roi_bounds["top"] + center_roi_y
 
                             logger.info(
-                                f"¡Botón de Aceptar detectado! Área: {area:.0f}, Ratio: {aspect_ratio:.2f}, "
-                                f"Densidad: {fill_density:.2f}, Coords: ({global_x}, {global_y})"
+                                f"¡Botón de Aceptar detectado! Coords exactas: ({global_x}, {global_y}), "
+                                f"Área: {area:.0f}, Ratio: {aspect_ratio:.2f}"
                             )
 
                             # Create preview image with bounding box for Discord
@@ -189,8 +207,54 @@ class MatchDetector:
             return False, None, None
 
         except Exception as e:
-            logger.debug(f"Error o interrupción temporal en la detección visual: {e}")
+            logger.debug(f"Error o interrupción temporal en check_match_ready: {e}")
             return False, None, None
+
+    def check_is_searching(self) -> bool:
+        """
+        Checks if Dota 2 is currently searching for a match by analyzing the bottom-right
+        play/queue button (where the queue timer and red cancel 'X' button appear).
+        """
+        try:
+            roi_bounds = self.get_bottom_right_roi_bounds()
+            if not roi_bounds:
+                return False
+
+            img_bgr = self.capture_roi(roi_bounds)
+            if img_bgr is None:
+                return False
+
+            roi_h, roi_w = img_bgr.shape[:2]
+            hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+
+            # In Dota 2, when actively searching, a red Cancel 'X' button or indicator
+            # appears on the right half of the matchmaking bar.
+            # Red color in HSV covers two ranges: 0-10 and 165-180
+            lower_red1 = np.array([0, 90, 70])
+            upper_red1 = np.array([10, 255, 255])
+            lower_red2 = np.array([165, 90, 70])
+            upper_red2 = np.array([180, 255, 255])
+
+            mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+            mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+            red_mask = cv2.bitwise_or(mask1, mask2)
+
+            # Only look at the rightmost 40% of the bottom-right bar where the 'X' button lives
+            search_x_start = int(roi_w * 0.60)
+            sub_mask = red_mask[:, search_x_start:]
+
+            red_pixels = cv2.countNonZero(sub_mask)
+            sub_area = sub_mask.shape[0] * sub_mask.shape[1]
+
+            # The cancel 'X' button constitutes ~1% to 15% of this sub-region
+            if sub_area > 0 and (0.008 <= (red_pixels / float(sub_area)) <= 0.25):
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error en check_is_searching: {e}")
+            return False
 
     def capture_full_screen_preview(self) -> Optional[bytes]:
         """Captures the full primary monitor as JPEG bytes for testing or status checks."""
@@ -203,7 +267,6 @@ class MatchDetector:
             mon = self.sct.monitors[1]
             sct_img = self.sct.grab(mon)
             img_np = np.array(sct_img)[:, :, :3]
-            # Resize to max 1280px width for fast Discord upload
             h, w = img_np.shape[:2]
             if w > 1280:
                 scale = 1280.0 / w

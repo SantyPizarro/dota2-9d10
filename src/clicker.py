@@ -1,6 +1,7 @@
 import time
 import logging
 import ctypes
+import threading
 from typing import Optional, Tuple
 
 try:
@@ -15,6 +16,9 @@ except ImportError:
     import pyautogui
 
 logger = logging.getLogger("dota2-9d10.clicker")
+
+# Mutex to ensure only ONE click action can execute at any time
+_click_lock = threading.Lock()
 
 # Windows API constants for preventing system / display sleep
 ES_CONTINUOUS = 0x80000000
@@ -53,7 +57,6 @@ def find_dota_window(title_keyword: str = "Dota 2") -> Optional[int]:
         if win32gui.IsWindowVisible(hwnd):
             window_text = win32gui.GetWindowText(hwnd)
             class_name = win32gui.GetClassName(hwnd)
-            # Dota 2 uses SDL_app class name or has "Dota 2" in window title
             if title_keyword.lower() in window_text.lower() or class_name == "SDL_app":
                 found_hwnd.append(hwnd)
         return True
@@ -87,11 +90,14 @@ def force_focus_window(hwnd: int) -> bool:
 
 def accept_match(coords: Optional[Tuple[int, int]] = None) -> Tuple[bool, str]:
     """
-    Executes the accept action in Dota 2.
-    1. Brings Dota 2 to foreground if possible.
-    2. Clicks the Accept button at specified coords (or calculated center).
-    3. Sends Enter key as a secondary confirmation.
+    Executes the accept action in Dota 2 with strict single-click lock.
+    Guarantees that only ONE click event is sent, avoiding duplicate clicks.
     """
+    # Non-blocking acquire: if an accept action is already executing, drop redundant requests
+    if not _click_lock.acquire(blocking=False):
+        logger.warning("Intento de clic redundante descartado por bloqueo activo.")
+        return True, "Acción de aceptar ya en ejecución."
+
     try:
         hwnd = find_dota_window()
         if hwnd:
@@ -99,28 +105,30 @@ def accept_match(coords: Optional[Tuple[int, int]] = None) -> Tuple[bool, str]:
             force_focus_window(hwnd)
             time.sleep(0.1)
 
-        # Determine click position
+        # Determine exact click position
         if coords:
             click_x, click_y = coords
-            logger.info(f"Haciendo clic en coordenadas detectadas: ({click_x}, {click_y})")
+            logger.info(f"Haciendo clic en coordenadas exactas detectadas: ({click_x}, {click_y})")
         else:
-            # Fallback to screen center (Dota 2 "Accept" button is centrally positioned)
+            # Fallback to screen center (Dota 2 'Accept' button is centrally positioned)
             screen_w, screen_h = pyautogui.size()
             click_x = screen_w // 2
             click_y = int(screen_h * 0.46)
             logger.info(f"Usando coordenadas de centro estimadas: ({click_x}, {click_y})")
 
-        # Perform mouse click
-        pyautogui.moveTo(click_x, click_y, duration=0.1)
+        # Position mouse and execute strictly ONE click
+        pyautogui.moveTo(click_x, click_y, duration=0.05)
         pyautogui.click(click_x, click_y)
-        time.sleep(0.1)
-        pyautogui.click(click_x, click_y)  # Double click safety
 
-        # Send Enter key (in Dota 2, pressing Enter on the match found popup also accepts)
-        time.sleep(0.1)
+        # Send Enter key as secondary confirmation
+        time.sleep(0.08)
         pyautogui.press("enter")
 
-        return True, f"Clic ejecutado en ({click_x}, {click_y}) y tecla Enter enviada."
+        return True, f"Clic único ejecutado con éxito en ({click_x}, {click_y})."
     except Exception as e:
         logger.error(f"Error al ejecutar la acción de aceptar: {e}")
         return False, f"Error al ejecutar clic: {str(e)}"
+    finally:
+        # Keep lock briefly to absorb any network bounce
+        time.sleep(0.5)
+        _click_lock.release()

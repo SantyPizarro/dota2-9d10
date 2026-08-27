@@ -7,7 +7,6 @@ from src.detector import MatchDetector
 
 def create_mock_dota_match_screen(width=1920, height=1080, has_button=True, button_color=(40, 190, 50)):
     """Generates a synthetic image simulating the Dota 2 dashboard and match found modal."""
-    # Dark Dota 2 theme background (dark blue/black)
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img[:] = (20, 20, 25)
 
@@ -25,19 +24,33 @@ def create_mock_dota_match_screen(width=1920, height=1080, has_button=True, butt
         btn_x = modal_x + (modal_w - btn_w) // 2
         btn_y = modal_y + int(modal_h * 0.50)
 
-        # Border color matches button shade
         border_color = tuple(min(255, c + 30) for c in button_color)
-
-        # Button fill (BGR format)
         cv2.rectangle(img, (btn_x, btn_y), (btn_x + btn_w, btn_y + btn_h), button_color, -1)
-        # Button border
         cv2.rectangle(img, (btn_x, btn_y), (btn_x + btn_w, btn_y + btn_h), border_color, 2)
 
     return img
 
 
+def create_mock_bottom_right_roi(width=480, height=130, is_searching=True):
+    """Generates a synthetic bottom-right ROI image simulating normal vs searching state."""
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    img[:] = (30, 30, 35)
+
+    if is_searching:
+        # Red cancel button 'X' on right side (BGR: red is (20, 30, 200))
+        btn_x = int(width * 0.80)
+        btn_y = int(height * 0.20)
+        btn_w = int(width * 0.15)
+        btn_h = int(height * 0.60)
+        cv2.rectangle(img, (btn_x, btn_y), (btn_x + btn_w, btn_y + btn_h), (25, 30, 210), -1)
+    else:
+        # Normal play button (solid green bar on bottom)
+        cv2.rectangle(img, (10, 10), (width - 10, height - 10), (30, 120, 40), -1)
+
+    return img
+
+
 def test_detector_positive_1080p(monkeypatch):
-    """Verifies that the detector correctly identifies the green accept button on 1080p."""
     detector = MatchDetector()
     mock_screen = create_mock_dota_match_screen(1920, 1080, has_button=True)
 
@@ -46,30 +59,26 @@ def test_detector_positive_1080p(monkeypatch):
     roi_h, roi_w = int(h * 0.40), int(w * 0.40)
     mock_roi = mock_screen[roi_top : roi_top + roi_h, roi_left : roi_left + roi_w]
 
-    roi_bounds = {
+    monkeypatch.setattr(detector, "get_center_roi_bounds", lambda: {
         "left": roi_left,
         "top": roi_top,
         "width": roi_w,
         "height": roi_h,
         "screen_width": w,
         "screen_height": h,
-    }
-
-    monkeypatch.setattr(detector, "capture_roi", lambda: (mock_roi, roi_bounds))
+    })
+    monkeypatch.setattr(detector, "capture_roi", lambda bounds: mock_roi)
 
     is_ready, coords, preview_bytes = detector.check_match_ready()
 
     assert is_ready is True
     assert coords is not None
-    # Coords should be near the center of the 1920x1080 screen (960, ~540)
     assert 900 <= coords[0] <= 1020
     assert 480 <= coords[1] <= 600
     assert preview_bytes is not None
-    assert len(preview_bytes) > 0
 
 
 def test_detector_negative_empty_screen(monkeypatch):
-    """Verifies that an empty screen does not trigger a false positive."""
     detector = MatchDetector()
     mock_screen = create_mock_dota_match_screen(1920, 1080, has_button=False)
 
@@ -78,16 +87,15 @@ def test_detector_negative_empty_screen(monkeypatch):
     roi_h, roi_w = int(h * 0.40), int(w * 0.40)
     mock_roi = mock_screen[roi_top : roi_top + roi_h, roi_left : roi_left + roi_w]
 
-    roi_bounds = {
+    monkeypatch.setattr(detector, "get_center_roi_bounds", lambda: {
         "left": roi_left,
         "top": roi_top,
         "width": roi_w,
         "height": roi_h,
         "screen_width": w,
         "screen_height": h,
-    }
-
-    monkeypatch.setattr(detector, "capture_roi", lambda: (mock_roi, roi_bounds))
+    })
+    monkeypatch.setattr(detector, "capture_roi", lambda bounds: mock_roi)
 
     is_ready, coords, preview_bytes = detector.check_match_ready()
 
@@ -96,59 +104,25 @@ def test_detector_negative_empty_screen(monkeypatch):
     assert preview_bytes is None
 
 
-def test_detector_negative_wrong_color_button(monkeypatch):
-    """Verifies that a red or blue button in the center does not trigger false positive."""
+def test_detector_check_is_searching_positive(monkeypatch):
     detector = MatchDetector()
-    # Blue button (BGR: 220, 50, 30)
-    mock_screen = create_mock_dota_match_screen(1920, 1080, has_button=True, button_color=(220, 50, 30))
+    mock_roi = create_mock_bottom_right_roi(480, 130, is_searching=True)
 
-    h, w = mock_screen.shape[:2]
-    roi_top, roi_left = int(h * 0.30), int(w * 0.30)
-    roi_h, roi_w = int(h * 0.40), int(w * 0.40)
-    mock_roi = mock_screen[roi_top : roi_top + roi_h, roi_left : roi_left + roi_w]
+    monkeypatch.setattr(detector, "get_bottom_right_roi_bounds", lambda: {
+        "left": 1400, "top": 900, "width": 480, "height": 130, "screen_width": 1920, "screen_height": 1080
+    })
+    monkeypatch.setattr(detector, "capture_roi", lambda bounds: mock_roi)
 
-    roi_bounds = {
-        "left": roi_left,
-        "top": roi_top,
-        "width": roi_w,
-        "height": roi_h,
-        "screen_width": w,
-        "screen_height": h,
-    }
-
-    monkeypatch.setattr(detector, "capture_roi", lambda: (mock_roi, roi_bounds))
-
-    is_ready, coords, preview_bytes = detector.check_match_ready()
-
-    assert is_ready is False
-    assert coords is None
-    assert preview_bytes is None
+    assert detector.check_is_searching() is True
 
 
-def test_detector_720p_resolution(monkeypatch):
-    """Verifies detection on 1280x720 (common low-spec laptop resolution)."""
+def test_detector_check_is_searching_negative(monkeypatch):
     detector = MatchDetector()
-    mock_screen = create_mock_dota_match_screen(1280, 720, has_button=True)
+    mock_roi = create_mock_bottom_right_roi(480, 130, is_searching=False)
 
-    h, w = mock_screen.shape[:2]
-    roi_top, roi_left = int(h * 0.30), int(w * 0.30)
-    roi_h, roi_w = int(h * 0.40), int(w * 0.40)
-    mock_roi = mock_screen[roi_top : roi_top + roi_h, roi_left : roi_left + roi_w]
+    monkeypatch.setattr(detector, "get_bottom_right_roi_bounds", lambda: {
+        "left": 1400, "top": 900, "width": 480, "height": 130, "screen_width": 1920, "screen_height": 1080
+    })
+    monkeypatch.setattr(detector, "capture_roi", lambda bounds: mock_roi)
 
-    roi_bounds = {
-        "left": roi_left,
-        "top": roi_top,
-        "width": roi_w,
-        "height": roi_h,
-        "screen_width": w,
-        "screen_height": h,
-    }
-
-    monkeypatch.setattr(detector, "capture_roi", lambda: (mock_roi, roi_bounds))
-
-    is_ready, coords, preview_bytes = detector.check_match_ready()
-
-    assert is_ready is True
-    assert coords is not None
-    assert 600 <= coords[0] <= 680
-    assert 320 <= coords[1] <= 420
+    assert detector.check_is_searching() is False

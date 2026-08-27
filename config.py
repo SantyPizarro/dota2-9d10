@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import List, Set
 from dotenv import load_dotenv
 
 # Base directory
@@ -16,6 +17,20 @@ DISCORD_CHANNEL_ID = int(_raw_channel_id) if _raw_channel_id.isdigit() else None
 
 _raw_user_id = os.getenv("DISCORD_USER_ID", "").strip()
 DISCORD_USER_ID = int(_raw_user_id) if _raw_user_id.isdigit() else None
+
+# Parse allowed user IDs whitelist
+_raw_allowed = os.getenv("ALLOWED_USER_IDS", "").strip()
+ALLOWED_USER_IDS: Set[int] = set()
+
+if _raw_allowed:
+    for uid_str in _raw_allowed.split(","):
+        uid_clean = uid_str.strip()
+        if uid_clean.isdigit():
+            ALLOWED_USER_IDS.add(int(uid_clean))
+
+# If ALLOWED_USER_IDS is empty but DISCORD_USER_ID is provided, whitelist DISCORD_USER_ID
+if not ALLOWED_USER_IDS and DISCORD_USER_ID:
+    ALLOWED_USER_IDS.add(DISCORD_USER_ID)
 
 # Monitoring and Detection Configuration
 CHECK_INTERVAL = float(os.getenv("CHECK_INTERVAL", "2.0"))

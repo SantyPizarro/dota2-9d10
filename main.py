@@ -26,45 +26,88 @@ logger = logging.getLogger("dota2-9d10")
 
 
 async def monitor_loop(bot: DotaBot, detector: MatchDetector):
-    """Background task that checks the screen periodically for Dota 2 match ready prompt."""
-    logger.info(f"Iniciando ciclo de vigilancia (chequeo cada {CHECK_INTERVAL}s)...")
+    """
+    Background state machine that checks Dota 2 matchmaking states:
+    - IDLE -> SEARCHING (Queue started)
+    - SEARCHING -> MATCH_READY (Match found!)
+    - MATCH_READY -> DODGE (9/10 / declined by another player -> back to queue)
+    - MATCH_READY -> IN_GAME (All 10 loaded -> hero selection)
+    """
+    logger.info(f"Iniciando ciclo de vigilancia de estados (chequeo cada {CHECK_INTERVAL}s)...")
     await bot.wait_until_ready()
 
     prevent_screen_sleep()
 
-    in_match_alert = False
-    last_alert_time = 0.0
+    state = "IDLE"
+    not_searching_counter = 0
+    match_ready_active = False
 
     while not bot.is_closed():
         try:
             now = time.time()
 
-            # Check if monitoring is paused
+            # Check if paused (e.g. during an ongoing match)
             if bot.paused_until and bot.paused_until > now:
                 await asyncio.sleep(5.0)
                 continue
 
-            # Check if we are within the alert cooldown window (~45s)
-            if in_match_alert and (now - last_alert_time < 45.0):
-                await asyncio.sleep(2.0)
-                continue
-            else:
-                in_match_alert = False
-
-            # Run visual check in a thread executor to avoid blocking the asyncio event loop
+            # 1. Check if Match Ready Dialog is visible
             is_ready, coords, preview_bytes = await asyncio.to_thread(detector.check_match_ready)
 
             if is_ready:
-                logger.info("⚔️ ¡PARTIDA DETECTADA EN PANTALLA! Enviando alerta a Discord...")
-                in_match_alert = True
-                last_alert_time = now
+                if not match_ready_active:
+                    logger.info("⚔️ ¡PARTIDA ENCONTRADA! Notificando en Discord...")
+                    match_ready_active = True
+                    state = "MATCH_READY"
+                    await bot.set_state("MATCH_READY", coords=coords, preview_bytes=preview_bytes)
 
-                await bot.send_match_alert(coords=coords, preview_bytes=preview_bytes)
+                # While match is ready, wait slightly and continue
+                await asyncio.sleep(2.0)
+                continue
 
-                # If auto-pause is enabled, schedule pause after match window
-                if AUTO_PAUSE_MINUTES > 0:
-                    bot.paused_until = now + (AUTO_PAUSE_MINUTES * 60)
-                    logger.info(f"Vigilancia auto-pausada por {AUTO_PAUSE_MINUTES} minutos tras detectar la partida.")
+            # If match ready was active and is no longer visible:
+            if match_ready_active and not is_ready:
+                match_ready_active = False
+                logger.info("Ventana de Aceptar partida cerrada. Determinando resultado (Dodge vs En Juego)...")
+                # Wait 6 seconds for game transition or queue rebound
+                await asyncio.sleep(6.0)
+
+                # Check if we bounced back to searching (DODGE / 9 of 10)
+                is_searching_now = await asyncio.to_thread(detector.check_is_searching)
+                if is_searching_now:
+                    logger.info("⚠️ Dodge detectado: La partida se canceló y regresó a la cola de búsqueda.")
+                    state = "SEARCHING"
+                    await bot.set_state("DODGE")
+                    await asyncio.sleep(3.0)
+                    await bot.set_state("SEARCHING")
+                    continue
+                else:
+                    logger.info("🎮 Partida iniciada con éxito. Entrando en modo IN_GAME.")
+                    state = "IN_GAME"
+                    await bot.set_state("IN_GAME")
+                    if AUTO_PAUSE_MINUTES > 0:
+                        bot.paused_until = time.time() + (AUTO_PAUSE_MINUTES * 60)
+                        logger.info(f"Vigilancia auto-pausada por {AUTO_PAUSE_MINUTES} minutos mientras juegas.")
+                    continue
+
+            # 2. Check if searching for a match in bottom-right corner
+            is_searching = await asyncio.to_thread(detector.check_is_searching)
+
+            if is_searching:
+                not_searching_counter = 0
+                if state != "SEARCHING":
+                    logger.info("🔍 Inicio de búsqueda de partida detectado.")
+                    state = "SEARCHING"
+                    await bot.set_state("SEARCHING")
+            else:
+                if state == "SEARCHING":
+                    not_searching_counter += 1
+                    # Debounce 3 consecutive checks (~6 seconds) before marking IDLE
+                    if not_searching_counter >= 3:
+                        logger.info("⏹️ Búsqueda de partida cancelada o finalizada.")
+                        state = "IDLE"
+                        await bot.set_state("IDLE")
+                        not_searching_counter = 0
 
             await asyncio.sleep(CHECK_INTERVAL)
 
@@ -78,7 +121,7 @@ async def monitor_loop(bot: DotaBot, detector: MatchDetector):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="dota2-9d10: Remote Dota 2 Match Accepter via Discord")
-    parser.add_argument("--test-click", action="store_true", help="Simula un clic en el centro de la pantalla y sale.")
+    parser.add_argument("--test-click", action="store_true", help="Simula un clic único en el centro de la pantalla y sale.")
     parser.add_argument("--check-screen", action="store_true", help="Realiza un chequeo visual único y guarda captura en temp/.")
     parser.add_argument("--debug", action="store_true", help="Habilita logs detallados de depuración.")
     return parser.parse_args()
@@ -94,7 +137,7 @@ async def main_async():
     detector = MatchDetector()
 
     if args.test_click:
-        logger.info("Ejecutando prueba de clic de simulación...")
+        logger.info("Ejecutando prueba de clic único de simulación...")
         success, msg = accept_match()
         logger.info(f"Resultado: {msg}")
         return
@@ -102,6 +145,8 @@ async def main_async():
     if args.check_screen:
         logger.info("Chequeando pantalla actual...")
         is_ready, coords, _ = detector.check_match_ready(debug_save=True)
+        is_searching = detector.check_is_searching()
+        logger.info(f"Estado de búsqueda en cola: {'Buscando partida' if is_searching else 'No buscando'}")
         if is_ready:
             logger.info(f"✅ ¡Partida lista detectada en {coords}! Ver temp/match_detected_debug.jpg")
         else:
@@ -122,9 +167,7 @@ async def main_async():
 
     try:
         async with bot:
-            # Launch background screen monitor
             asyncio.create_task(monitor_loop(bot, detector))
-            # Start Discord connection
             await bot.start(DISCORD_BOT_TOKEN)
     finally:
         restore_screen_sleep()
