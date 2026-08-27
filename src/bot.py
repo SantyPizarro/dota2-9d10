@@ -134,9 +134,10 @@ class DotaBot(commands.Bot):
 
     async def setup_hook(self):
         await self.register_slash_commands()
+        self.register_prefix_commands()
         try:
             synced = await self.tree.sync()
-            logger.info(f"Comandos Slash sincronizados: {len(synced)} comandos.")
+            logger.info(f"Comandos Slash globales registrados: {len(synced)} comandos.")
         except Exception as e:
             logger.warning(f"No se pudieron sincronizar comandos slash globales: {e}")
 
@@ -146,6 +147,17 @@ class DotaBot(commands.Bot):
             logger.info(f"Usuarios autorizados (Whitelist): {ALLOWED_USER_IDS}")
         else:
             logger.info("Whitelist vacía: cualquier usuario en el canal podrá interactuar.")
+
+        # Sync immediately to each connected server for INSTANT slash command display
+        for guild in self.guilds:
+            try:
+                self.tree.copy_global_to(guild=guild)
+                synced_guild = await self.tree.sync(guild=guild)
+                logger.info(
+                    f"Comandos Slash sincronizados instantáneamente con '{guild.name}' ({len(synced_guild)} comandos)."
+                )
+            except Exception as e:
+                logger.warning(f"No se pudieron sincronizar comandos instantáneos en '{guild.name}': {e}")
 
         activity = discord.Activity(type=discord.ActivityType.watching, name="dotaaaaaaaaaaaaa")
         await self.change_presence(status=discord.Status.online, activity=activity)
@@ -164,6 +176,35 @@ class DotaBot(commands.Bot):
                 logger.error(f"No se pudo obtener el canal con ID {DISCORD_CHANNEL_ID}: {e}")
                 return None
         return channel
+
+    def build_status_embed(self) -> discord.Embed:
+        """Helper to create the status embed."""
+        now = time.time()
+        if self.paused_until and self.paused_until > now:
+            remaining_min = int((self.paused_until - now) / 60)
+            status_text = f"⏸️ **Pausado** (restan ~{remaining_min} minutos)"
+        elif self.is_monitoring:
+            status_text = f"🟢 **Activo** (Estado actual: `{self.current_state}`)"
+        else:
+            status_text = "🔴 **Desactivado manualmente**"
+
+        hwnd = find_dota_window(DOTA2_WINDOW_TITLE)
+        game_status = f"🎮 Detectado (HWND: {hwnd})" if hwnd else "⚠️ No detectado (¿juego cerrado o minimizado?)"
+
+        embed = discord.Embed(title="📊 Estado:", color=discord.Color.blue())
+        embed.add_field(name="Vigilancia", value=status_text, inline=False)
+        embed.add_field(name="Proceso Dota 2", value=game_status, inline=False)
+        embed.add_field(
+            name="Canal de Alertas",
+            value=f"<#{DISCORD_CHANNEL_ID}>" if DISCORD_CHANNEL_ID else "No configurado",
+            inline=True,
+        )
+        embed.add_field(
+            name="Usuarios Autorizados",
+            value=", ".join(f"<@{u}>" for u in ALLOWED_USER_IDS) if ALLOWED_USER_IDS else "Todos los usuarios",
+            inline=True,
+        )
+        return embed
 
     async def set_state(
         self,
@@ -246,7 +287,12 @@ class DotaBot(commands.Bot):
                 else:
                     await self.active_status_message.edit(embed=embed, view=view, attachments=files)
             else:
-                msg = await channel.send(content=mention if new_state == "MATCH_READY" else None, embed=embed, files=files, view=view)
+                msg = await channel.send(
+                    content=mention if new_state == "MATCH_READY" else None,
+                    embed=embed,
+                    files=files,
+                    view=view,
+                )
                 if not is_test:
                     self.active_status_message = msg
 
@@ -256,41 +302,59 @@ class DotaBot(commands.Bot):
         except Exception as e:
             logger.warning(f"No se pudo editar el mensaje de estado, enviando uno nuevo: {e}")
             try:
-                msg = await channel.send(content=mention if new_state == "MATCH_READY" else None, embed=embed, files=files, view=view)
+                msg = await channel.send(
+                    content=mention if new_state == "MATCH_READY" else None,
+                    embed=embed,
+                    files=files,
+                    view=view,
+                )
                 if not is_test:
                     self.active_status_message = msg
             except Exception as send_err:
                 logger.error(f"Error crítico enviando mensaje a Discord: {send_err}")
 
+    def register_prefix_commands(self):
+        """Registers text fallback commands: !test, !status, !pause, !resume, !screen."""
+
+        @self.command(name="test")
+        async def cmd_p_test(ctx):
+            await ctx.send("Enviando alerta de prueba...")
+            preview_bytes = self.detector.capture_full_screen_preview()
+            await self.set_state("MATCH_READY", coords=None, preview_bytes=preview_bytes, is_test=True)
+
+        @self.command(name="status")
+        async def cmd_p_status(ctx):
+            embed = self.build_status_embed()
+            await ctx.send(embed=embed)
+
+        @self.command(name="pause")
+        async def cmd_p_pause(ctx, minutos: int = 25):
+            self.paused_until = time.time() + (minutos * 60)
+            await ctx.send(f"⏸️ Bot pausado por **{minutos} minutos**.")
+
+        @self.command(name="resume")
+        async def cmd_p_resume(ctx):
+            self.paused_until = None
+            self.is_monitoring = True
+            await ctx.send("🟢 bot? **ON**. Esperando partidas.")
+
+        @self.command(name="screen")
+        async def cmd_p_screen(ctx):
+            preview = self.detector.capture_full_screen_preview()
+            if preview:
+                file = discord.File(io.BytesIO(preview), filename="screen.jpg")
+                embed = discord.Embed(title="🖥️ Captura Actual de Pantalla", color=discord.Color.dark_grey())
+                embed.set_image(url="attachment://screen.jpg")
+                await ctx.send(embed=embed, file=file)
+            else:
+                await ctx.send("⚠️ No se pudo capturar la pantalla")
+
     async def register_slash_commands(self):
+        """Registers Slash Commands (/status, /test, /pause, /resume, /screen)."""
+
         @self.tree.command(name="status", description="Muestra el estado actual del botsito.")
         async def cmd_status(interaction: discord.Interaction):
-            now = time.time()
-            if self.paused_until and self.paused_until > now:
-                remaining_min = int((self.paused_until - now) / 60)
-                status_text = f"⏸️ **Pausado** (restan ~{remaining_min} minutos)"
-            elif self.is_monitoring:
-                status_text = f"🟢 **Activo** (Estado actual: `{self.current_state}`)"
-            else:
-                status_text = "🔴 **Desactivado manualmente**"
-
-            hwnd = find_dota_window(DOTA2_WINDOW_TITLE)
-            game_status = f"🎮 Detectado (HWND: {hwnd})" if hwnd else "⚠️ No detectado (¿juego cerrado o minimizado?)"
-
-            embed = discord.Embed(title="📊 Estado:", color=discord.Color.blue())
-            embed.add_field(name="Vigilancia", value=status_text, inline=False)
-            embed.add_field(name="Proceso Dota 2", value=game_status, inline=False)
-            embed.add_field(
-                name="Canal de Alertas",
-                value=f"<#{DISCORD_CHANNEL_ID}>" if DISCORD_CHANNEL_ID else "No configurado",
-                inline=True,
-            )
-            embed.add_field(
-                name="Usuarios Autorizados",
-                value=", ".join(f"<@{u}>" for u in ALLOWED_USER_IDS) if ALLOWED_USER_IDS else "Todos los usuarios",
-                inline=True,
-            )
-
+            embed = self.build_status_embed()
             await interaction.response.send_message(embed=embed)
 
         @self.tree.command(name="test", description="Envía una alerta de prueba.")
