@@ -43,13 +43,13 @@ class AcceptMatchView(discord.ui.View):
                 f"Intento de interacción no autorizado por {interaction.user} (ID: {interaction.user.id})"
             )
             await interaction.response.send_message(
-                "⛔ **Acceso denegado:** No tienes permiso para controlar la PC ni aceptar esta partida.",
+                "⛔ **NO TOQUES,** wachin.",
                 ephemeral=True,
             )
             return False
         return True
 
-    @discord.ui.button(label="ACEPTAR PARTIDA", style=discord.ButtonStyle.success, emoji="🎮")
+    @discord.ui.button(label="ACEPTAR PARTIDA", style=discord.ButtonStyle.success, emoji="😼")
     async def accept_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.processed:
             await interaction.response.send_message("⚠️ Esta alerta ya fue procesada.", ephemeral=True)
@@ -75,7 +75,7 @@ class AcceptMatchView(discord.ui.View):
             embed.description = (
                 f"{message}\n\n"
                 f"👤 *Aceptada por:* <@{interaction.user.id}>\n"
-                f"🏃 **¡Corre a tu laptop para la fase de picks / selección de héroe!**"
+                f"🏃 **Corre wachin**"
             )
         else:
             embed.color = discord.Color.orange()
@@ -84,7 +84,7 @@ class AcceptMatchView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="Ignorar / No Aceptar", style=discord.ButtonStyle.danger, emoji="❌")
+    @discord.ui.button(label="Ignorar", style=discord.ButtonStyle.danger, emoji="❌")
     async def decline_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.processed:
             await interaction.response.send_message("⚠️ Esta alerta ya fue procesada.", ephemeral=True)
@@ -101,7 +101,7 @@ class AcceptMatchView(discord.ui.View):
         embed = interaction.message.embeds[0] if interaction.message.embeds else discord.Embed()
         embed.color = discord.Color.red()
         embed.title = "❌ Partida Ignorada"
-        embed.description = f"👤 *Ignorada por:* <@{interaction.user.id}>\nNo se ejecutó ninguna acción en la PC."
+        embed.description = f"👤 *Ignorada por:* <@{interaction.user.id}>"
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -147,7 +147,7 @@ class DotaBot(commands.Bot):
         else:
             logger.info("Whitelist vacía: cualquier usuario en el canal podrá interactuar.")
 
-        activity = discord.Activity(type=discord.ActivityType.watching, name="Dota 2 Matchmaking ⚔️")
+        activity = discord.Activity(type=discord.ActivityType.watching, name="dotaaaaaaaaaaaaa")
         await self.change_presence(status=discord.Status.online, activity=activity)
 
     async def get_notification_channel(self) -> Optional[discord.TextChannel]:
@@ -190,24 +190,16 @@ class DotaBot(commands.Bot):
                 self.search_start_time = time.time()
 
             start_ts = int(self.search_start_time) if self.search_start_time else int(time.time())
-            embed.title = "🔍 Buscando Partida de Dota 2..."
-            embed.description = (
-                f"🎮 **Vigilancia activa en tu laptop.**\n"
-                f"Puedes ir a hacer tus quehaceres con tranquilidad.\n\n"
-                f"⏳ *Búsqueda iniciada:* <t:{start_ts}:R>"
-            )
+            embed.title = "🔍 Buscando Partida..."
+            embed.description = f"buscandoooo...  <t:{start_ts}:R>"
             embed.color = discord.Color.blue()
-            embed.set_footer(text="dota2-9d10 • Esperando que salte la partida...")
+            embed.set_footer(text="dota2-9d10")
 
         elif new_state == "MATCH_READY":
-            embed.title = "🔔 ¡PARTIDA ENCONTRADA EN DOTA 2!" if not is_test else "🧪 ALERTA DE PRUEBA (TEST)"
-            embed.description = (
-                f"{mention}\n"
-                f"**¡Tu partida está lista en la laptop!**\n"
-                f"Presiona el botón verde abajo para **Aceptar**."
-            )
+            embed.title = "🔔 ¡PARTIDA ENCONTRADA!!!!!!!!!!!!!!!!!!!!" if not is_test else "🧪 ALERTA DE PRUEBA (TEST)"
+            embed.description = f"{mention}!!!! \nPresiona el botón verde abajo para **Aceptar**."
             embed.color = discord.Color.gold() if is_test else discord.Color.green()
-            embed.set_footer(text=f"dota2-9d10 • Tienes {int(ACCEPT_TIMEOUT)}s para responder")
+            embed.set_footer(text=f"dota2-9d10 • Tenes {int(ACCEPT_TIMEOUT)}s para responder")
 
             if preview_bytes:
                 file_preview = discord.File(io.BytesIO(preview_bytes), filename="match_preview.jpg")
@@ -227,27 +219,19 @@ class DotaBot(commands.Bot):
             )
 
         elif new_state == "DODGE":
-            embed.title = "⚠️ Un jugador no aceptó (9/10 / Dodge)"
-            embed.description = (
-                "La partida anterior se canceló porque alguien no aceptó.\n\n"
-                "🔄 **Dota 2 regresó automáticamente a la cola con Prioridad Alta.**\n"
-                "La vigilancia sigue activa. Te avisaré cuando encuentre la siguiente partida."
-            )
+            embed.title = "⚠️ Otro jugador no aceptó"
+            embed.description = "La partida anterior se canceló porque alguien no aceptó.\n\n🔄 **Seguimos en la cola**"
             embed.color = discord.Color.orange()
-            embed.set_footer(text="dota2-9d10 • Vigilancia reanudada automáticamente")
+            embed.set_footer(text="dota2-9d10")
 
         elif new_state == "IN_GAME":
-            embed.title = "🎮 ¡Partida Iniciada con Éxito!"
-            embed.description = (
-                "Todos los jugadores cargaron y la fase de selección de héroes está activa.\n\n"
-                "💤 **Vigilancia pausada durante el juego para optimizar recursos.**\n"
-                "¡Mucha suerte en la partida!"
-            )
+            embed.title = " ¡Partida Iniciada!"
+            embed.description = "tamoooooooo"
             embed.color = discord.Color.purple()
             embed.set_footer(text="dota2-9d10 • Partida en curso")
 
         elif new_state == "IDLE":
-            embed.title = "⏹️ Búsqueda Detenida / En Espera"
+            embed.title = "Búsqueda Detenida / En Espera"
             embed.description = "No se detecta búsqueda activa de partida."
             embed.color = discord.Color.light_grey()
             embed.set_footer(text="dota2-9d10 • Esperando inicio de cola")
@@ -257,18 +241,15 @@ class DotaBot(commands.Bot):
         # Update existing message or send a new one
         try:
             if self.active_status_message and not is_test:
-                # If changing state without new files, just edit
                 if not files:
                     await self.active_status_message.edit(embed=embed, view=view)
                 else:
-                    # Discord doesn't easily replace attachments on edit without re-sending
                     await self.active_status_message.edit(embed=embed, view=view, attachments=files)
             else:
                 msg = await channel.send(content=mention if new_state == "MATCH_READY" else None, embed=embed, files=files, view=view)
                 if not is_test:
                     self.active_status_message = msg
 
-            # If match entered game or idle, reset message reference for next session
             if new_state in ("IN_GAME", "IDLE"):
                 self.active_status_message = None
 
@@ -282,7 +263,7 @@ class DotaBot(commands.Bot):
                 logger.error(f"Error crítico enviando mensaje a Discord: {send_err}")
 
     async def register_slash_commands(self):
-        @self.tree.command(name="status", description="Muestra el estado actual del monitor de Dota 2.")
+        @self.tree.command(name="status", description="Muestra el estado actual del botsito.")
         async def cmd_status(interaction: discord.Interaction):
             now = time.time()
             if self.paused_until and self.paused_until > now:
@@ -296,7 +277,7 @@ class DotaBot(commands.Bot):
             hwnd = find_dota_window(DOTA2_WINDOW_TITLE)
             game_status = f"🎮 Detectado (HWND: {hwnd})" if hwnd else "⚠️ No detectado (¿juego cerrado o minimizado?)"
 
-            embed = discord.Embed(title="📊 Estado del Monitor Dota 2", color=discord.Color.blue())
+            embed = discord.Embed(title="📊 Estado:", color=discord.Color.blue())
             embed.add_field(name="Vigilancia", value=status_text, inline=False)
             embed.add_field(name="Proceso Dota 2", value=game_status, inline=False)
             embed.add_field(
@@ -312,25 +293,25 @@ class DotaBot(commands.Bot):
 
             await interaction.response.send_message(embed=embed)
 
-        @self.tree.command(name="test", description="Envía una alerta de prueba interactiva a Discord.")
+        @self.tree.command(name="test", description="Envía una alerta de prueba.")
         async def cmd_test(interaction: discord.Interaction):
-            await interaction.response.send_message("🚀 Enviando alerta de prueba...", ephemeral=True)
+            await interaction.response.send_message("Enviando alerta de prueba...", ephemeral=True)
             preview_bytes = self.detector.capture_full_screen_preview()
             await self.set_state("MATCH_READY", coords=None, preview_bytes=preview_bytes, is_test=True)
 
-        @self.tree.command(name="pause", description="Pausa temporalmente la vigilancia (ej. mientras juegas).")
+        @self.tree.command(name="pause", description="Pausar el bot (ej. mientras juegas).")
         @app_commands.describe(minutos="Minutos para pausar (por defecto 25)")
         async def cmd_pause(interaction: discord.Interaction, minutos: int = 25):
             self.paused_until = time.time() + (minutos * 60)
-            await interaction.response.send_message(f"⏸️ Vigilancia pausada durante **{minutos} minutos**.")
+            await interaction.response.send_message(f"⏸️ Bot pausado por **{minutos} minutos**.")
 
-        @self.tree.command(name="resume", description="Reanuda la vigilancia de partidas inmediatamente.")
+        @self.tree.command(name="resume", description="Reanuda el bot")
         async def cmd_resume(interaction: discord.Interaction):
             self.paused_until = None
             self.is_monitoring = True
-            await interaction.response.send_message("🟢 Vigilancia **reanudada**. Esperando partidas.")
+            await interaction.response.send_message("🟢 bot? **ON**. Esperando partidas.")
 
-        @self.tree.command(name="screen", description="Captura la pantalla actual de la laptop y la envía.")
+        @self.tree.command(name="screen", description="Captura de pantalla (si).")
         async def cmd_screen(interaction: discord.Interaction):
             await interaction.response.defer()
             preview = self.detector.capture_full_screen_preview()
@@ -340,4 +321,4 @@ class DotaBot(commands.Bot):
                 embed.set_image(url="attachment://screen.jpg")
                 await interaction.followup.send(embed=embed, file=file)
             else:
-                await interaction.followup.send("⚠️ No se pudo capturar la pantalla (pantalla apagada o bloqueada).")
+                await interaction.followup.send("⚠️ No se pudo capturar la pantalla")

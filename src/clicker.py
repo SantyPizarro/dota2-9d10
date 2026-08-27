@@ -93,10 +93,9 @@ def accept_match(coords: Optional[Tuple[int, int]] = None) -> Tuple[bool, str]:
     Executes the accept action in Dota 2 with strict single-click lock.
     Guarantees that only ONE click event is sent, avoiding duplicate clicks.
     """
-    # Non-blocking acquire: if an accept action is already executing, drop redundant requests
     if not _click_lock.acquire(blocking=False):
         logger.warning("Intento de clic redundante descartado por bloqueo activo.")
-        return True, "Acción de aceptar ya en ejecución."
+        return True, "✅✅✅✅✅✅✅✅"
 
     try:
         hwnd = find_dota_window()
@@ -110,7 +109,6 @@ def accept_match(coords: Optional[Tuple[int, int]] = None) -> Tuple[bool, str]:
             click_x, click_y = coords
             logger.info(f"Haciendo clic en coordenadas exactas detectadas: ({click_x}, {click_y})")
         else:
-            # Fallback to screen center (Dota 2 'Accept' button is centrally positioned)
             screen_w, screen_h = pyautogui.size()
             click_x = screen_w // 2
             click_y = int(screen_h * 0.46)
@@ -124,11 +122,10 @@ def accept_match(coords: Optional[Tuple[int, int]] = None) -> Tuple[bool, str]:
         time.sleep(0.08)
         pyautogui.press("enter")
 
-        return True, f"Clic único ejecutado con éxito en ({click_x}, {click_y})."
+        return True, "✅✅✅✅✅✅✅✅"
     except Exception as e:
         logger.error(f"Error al ejecutar la acción de aceptar: {e}")
         return False, f"Error al ejecutar clic: {str(e)}"
     finally:
-        # Keep lock briefly to absorb any network bounce
         time.sleep(0.5)
         _click_lock.release()

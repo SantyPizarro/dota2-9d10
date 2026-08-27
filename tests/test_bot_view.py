@@ -31,7 +31,7 @@ def test_accept_match_view_authorized_user():
         is_allowed = await view.interaction_check(interaction)
         assert is_allowed is True
 
-        with patch("src.bot.accept_match", return_value=(True, "Click simulated")) as mock_click:
+        with patch("src.bot.accept_match", return_value=(True, "✅✅✅✅✅✅✅✅")) as mock_click:
             button = view.children[0]
             await button.callback(interaction)
             mock_click.assert_called_once()
@@ -70,10 +70,10 @@ def test_accept_match_view_unauthorized_user_blocked():
         is_allowed = await view.interaction_check(interaction)
         assert is_allowed is False
 
-        # Verify ephemeral rejection message was sent
+        # Verify custom ephemeral rejection message was sent
         interaction.response.send_message.assert_awaited_once()
         args, kwargs = interaction.response.send_message.call_args
-        assert "denegado" in args[0].lower() or "acceso" in args[0].lower()
+        assert "no toques" in args[0].lower() or "wachin" in args[0].lower()
         assert kwargs.get("ephemeral") is True
 
         # Ensure action was NOT processed

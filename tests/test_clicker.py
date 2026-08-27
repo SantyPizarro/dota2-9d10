@@ -11,7 +11,7 @@ def test_accept_match_single_click():
         success, msg = accept_match(coords=(800, 450))
 
         assert success is True
-        assert "800, 450" in msg
+        assert msg == "✅✅✅✅✅✅✅✅"
         mock_move.assert_called_once_with(800, 450, duration=0.05)
         # Verify strictly ONE click was made
         mock_click.assert_called_once_with(800, 450)
