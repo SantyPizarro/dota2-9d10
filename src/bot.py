@@ -325,7 +325,7 @@ class DotaBot(commands.Bot):
             await ctx.send(embed=embed)
 
         @self.command(name="pause")
-        async def cmd_p_pause(ctx, minutos: int = 25):
+        async def cmd_p_pause(ctx, minutos: int = 50):
             self.paused_until = time.time() + (minutos * 60)
             await ctx.send(f"⏸️ Bot pausado por **{minutos} minutos**.")
 
@@ -361,8 +361,8 @@ class DotaBot(commands.Bot):
             await self.set_state("MATCH_READY", coords=None, preview_bytes=preview_bytes, is_test=True)
 
         @self.tree.command(name="pause", description="Pausar el bot (ej. mientras juegas).")
-        @app_commands.describe(minutos="Minutos para pausar (por defecto 25)")
-        async def cmd_pause(interaction: discord.Interaction, minutos: int = 25):
+        @app_commands.describe(minutos="Minutos para pausar (por defecto 50)")
+        async def cmd_pause(interaction: discord.Interaction, minutos: int = 50):
             self.paused_until = time.time() + (minutos * 60)
             await interaction.response.send_message(f"⏸️ Bot pausado por **{minutos} minutos**.")
 

@@ -34,7 +34,7 @@ if not ALLOWED_USER_IDS and DISCORD_USER_ID:
 
 # Monitoring and Detection Configuration
 CHECK_INTERVAL = float(os.getenv("CHECK_INTERVAL", "2.0"))
-AUTO_PAUSE_MINUTES = int(os.getenv("AUTO_PAUSE_MINUTES", "25"))
+AUTO_PAUSE_MINUTES = int(os.getenv("AUTO_PAUSE_MINUTES", "50"))
 DOTA2_WINDOW_TITLE = os.getenv("DOTA2_WINDOW_TITLE", "Dota 2")
 ACCEPT_TIMEOUT = float(os.getenv("ACCEPT_TIMEOUT", "40.0"))
 
